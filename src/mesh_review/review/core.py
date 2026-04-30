@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,6 +12,24 @@ from typing import Callable, Dict, List, Optional
 
 
 # ── Data shapes ──────────────────────────────────────────────────────────────
+
+
+# Words too generic to participate in title-based clustering — drop them so
+# "Brittle JSON parsing" matches "JSON parsing brittle" matches "parsing JSON".
+_TITLE_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has",
+    "have", "in", "is", "it", "its", "of", "on", "or", "that", "the", "this",
+    "to", "was", "were", "will", "with",
+})
+
+
+def _normalize_title(title: str) -> str:
+    """Lowercase, strip non-alphanum, drop stopwords, sort tokens.
+    Two titles like "Brittle JSON parsing" and "JSON parsing — brittle"
+    yield the same key."""
+    tokens = re.findall(r"[a-z0-9]+", title.lower())
+    tokens = [t for t in tokens if t not in _TITLE_STOPWORDS and len(t) > 1]
+    return ":".join(sorted(set(tokens)))
 
 
 @dataclass
@@ -24,10 +43,19 @@ class Finding:
     body: str
 
     def fingerprint(self) -> str:
-        """A stable-ish key used to cluster findings across CLIs.
-        Two findings cluster when same file + same line ±2 + same severity.
+        """Stable key used to cluster findings across CLIs.
+
+        Cluster when same-file + same-severity + (line within ±2) + similar title.
+        Title is normalized (lowercase, stopwords stripped, sorted tokens) so
+        rephrasing across LLMs still matches; line uses ±2 window via floor div by 3
+        rather than //5 (the prior //5 had a 5-line blast radius and could
+        cluster unrelated findings).
         """
-        return f"{self.file}:{self.severity}:{(self.line or 0) // 5}"
+        line_bucket = (self.line // 3) if self.line else 0
+        return (
+            f"{self.file}:{self.severity}:{line_bucket}:"
+            f"{_normalize_title(self.title)}"
+        )
 
 
 @dataclass
@@ -92,23 +120,56 @@ def _shell_runner(cli: str, cmd: List[str], timeout: int):
     return run
 
 
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL | re.IGNORECASE)
+
+
+def _try_loads(s: str):
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return None
+
+
 def _parse_findings(text: str, default_cli: str, default_file: str) -> List[Finding]:
-    """Best-effort parse of CLI output into Finding[]. Tolerates extra prose."""
+    """Best-effort parse of CLI output into Finding[]. Tolerates prose/fences/multiple blocks.
+
+    Resolution order:
+      1. Direct JSON (whole stdout is the array).
+      2. ```json ... ``` fenced blocks (try each, take first list).
+      3. Greedy `[...]` extract: find each candidate `[...]` substring with
+         balanced brackets; try each from longest to shortest.
+    """
     if not text.strip():
         return []
-    # Try direct JSON first
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        # Try to extract a JSON array embedded in prose
-        start = text.find("[")
-        end = text.rfind("]")
-        if start == -1 or end == -1 or end <= start:
-            return []
-        try:
-            data = json.loads(text[start:end + 1])
-        except json.JSONDecodeError:
-            return []
+    # 1. Direct
+    data = _try_loads(text)
+    # 2. Fenced
+    if data is None:
+        for match in _JSON_FENCE_RE.finditer(text):
+            cand = _try_loads(match.group(1).strip())
+            if isinstance(cand, list):
+                data = cand
+                break
+    # 3. Balanced-bracket scan (handles titles containing `[`, multiple arrays)
+    if data is None:
+        candidates: List[str] = []
+        depth = 0
+        start_idx = -1
+        for i, ch in enumerate(text):
+            if ch == "[":
+                if depth == 0:
+                    start_idx = i
+                depth += 1
+            elif ch == "]" and depth > 0:
+                depth -= 1
+                if depth == 0 and start_idx != -1:
+                    candidates.append(text[start_idx:i + 1])
+                    start_idx = -1
+        for cand in sorted(candidates, key=len, reverse=True):
+            parsed = _try_loads(cand)
+            if isinstance(parsed, list):
+                data = parsed
+                break
     if not isinstance(data, list):
         return []
     findings: List[Finding] = []

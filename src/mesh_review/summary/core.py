@@ -78,8 +78,25 @@ def _shell_runner(cli: str, cmd: List[str], timeout: int):
     return run
 
 
+def _strip_md_emphasis(s: str) -> str:
+    """Strip leading/trailing markdown bold (**) and italic (_, *) markers
+    so '**TLDR:**' or '_TLDR_:' still match. Preserves inner text."""
+    s = s.strip()
+    # Strip pairs of leading/trailing emphasis markers
+    for _ in range(3):  # at most ***, **, *
+        for pair in ("***", "**", "*", "__", "_"):
+            if s.startswith(pair) and s.endswith(pair) and len(s) > 2 * len(pair):
+                s = s[len(pair):-len(pair)].strip()
+                break
+            if s.startswith(pair):
+                s = s[len(pair):].strip()
+                break
+    return s
+
+
 def _parse_summary(cli: str, raw: str) -> SummaryDoc:
-    """Best-effort parse of the prefixed-section format. Tolerates extra prose."""
+    """Best-effort parse of the prefixed-section format. Tolerates extra prose
+    and Markdown emphasis (e.g., `**TLDR:**`, `__RISK:__`)."""
     doc = SummaryDoc(cli=cli, raw=raw)
     if not raw.strip():
         return doc
@@ -87,17 +104,24 @@ def _parse_summary(cli: str, raw: str) -> SummaryDoc:
     current: Optional[str] = None
     for line in raw.splitlines():
         stripped = line.strip()
+        # Prefix-match check is done against an emphasis-stripped copy so that
+        # `**TLDR:** body` is recognised, while the original line still feeds
+        # whatever follows the prefix.
+        candidate = _strip_md_emphasis(stripped)
+        matched = False
         for key in sections:
             prefix = key + ":"
-            if stripped.upper().startswith(prefix):
+            if candidate.upper().startswith(prefix):
                 current = key
-                rest = stripped[len(prefix):].strip()
+                rest = candidate[len(prefix):].strip()
+                # Trailing closing emphasis after the body, e.g. "TLDR:** body"
+                rest = rest.lstrip("*_ ").rstrip()
                 if rest:
                     sections[key].append(rest)
+                matched = True
                 break
-        else:
-            if current and stripped:
-                sections[current].append(stripped)
+        if not matched and current and stripped:
+            sections[current].append(stripped)
     doc.tldr = " ".join(sections["TLDR"]).strip()
     doc.files_changed = "\n".join(sections["FILES"]).strip()
     doc.risk = " ".join(sections["RISK"]).strip()

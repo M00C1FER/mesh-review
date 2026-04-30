@@ -1,22 +1,48 @@
 """Aggregate multiple SummaryDoc objects into one consolidated output.
 
 Two modes:
-  • merge_structural — concatenate sections with per-CLI attribution
+  • merge_structural — concatenate sections with per-CLI attribution; near-
+                       duplicate paragraphs collapsed via SequenceMatcher
+                       similarity
   • vote_best        — pick the single SummaryDoc whose sections are the
                        longest non-empty (proxy for "most thorough")
 """
 from __future__ import annotations
 
+import re
+from difflib import SequenceMatcher
 from typing import List
 
 from .core import SummaryDoc
+
+
+# Two paragraphs are considered duplicates when their similarity ratio is
+# at or above this threshold. 0.85 is empirically tight enough to dedup
+# rephrasings ("Adds X" vs "Add X") without collapsing distinct points.
+_DUP_THRESHOLD = 0.85
+
+
+def _normalize_for_dedup(s: str) -> str:
+    """Lowercase + strip non-alphanum so `Adds JWT auth` and `Add JWT auth.`
+    are treated as identical for similarity scoring."""
+    return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+
+
+def _is_near_dup(a: str, b: str) -> bool:
+    na, nb = _normalize_for_dedup(a), _normalize_for_dedup(b)
+    if not na or not nb:
+        return False
+    return SequenceMatcher(None, na, nb).ratio() >= _DUP_THRESHOLD
 
 
 def merge_structural(docs: List[SummaryDoc]) -> SummaryDoc:
     """Build a single SummaryDoc by concatenating per-CLI contributions.
 
     Each section becomes a multi-paragraph block with `[cli]` prefixes so
-    reviewers can trace back to source. Errors are surfaced as a footnote.
+    reviewers can trace back to source. Near-duplicate paragraphs (≥85%
+    similarity, normalized) are collapsed into a single attribution
+    "[claude+gemini]" to avoid noise when multiple CLIs say the same thing.
+    Errors are surfaced as a footnote.
     """
     valid = [d for d in docs if not d.error and not d.is_empty()]
     errored = [d for d in docs if d.error]
@@ -28,12 +54,26 @@ def merge_structural(docs: List[SummaryDoc]) -> SummaryDoc:
         return SummaryDoc(cli="merged", error=msg)
 
     def join(field: str) -> str:
-        chunks = []
+        # First pass — collect (cli, value) pairs, skipping empties
+        items: List[tuple[str, str]] = []
         for d in valid:
             value = getattr(d, field, "").strip()
             if value:
-                chunks.append(f"[{d.cli}] {value}")
-        return "\n\n".join(chunks)
+                items.append((d.cli, value))
+        # Second pass — cluster near-duplicates; first encountered wins as
+        # the canonical text, every dup adds its CLI to the attribution list.
+        clusters: List[tuple[List[str], str]] = []
+        for cli, value in items:
+            placed = False
+            for i, (clis, canon) in enumerate(clusters):
+                if _is_near_dup(canon, value):
+                    clusters[i] = (clis + [cli], canon)
+                    placed = True
+                    break
+            if not placed:
+                clusters.append(([cli], value))
+        # Render with `[cli1+cli2] body` per cluster
+        return "\n\n".join(f"[{'+'.join(clis)}] {canon}" for clis, canon in clusters)
 
     merged = SummaryDoc(
         cli="merged",
