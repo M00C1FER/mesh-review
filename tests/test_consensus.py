@@ -170,6 +170,26 @@ def test_parse_falsifier_output_unparseable():
     assert _parse_falsifier_output("just prose, no JSON here") is None
 
 
+def test_parse_falsifier_output_handles_nested_objects():
+    """Rationales sometimes embed JSON snippets — must parse the outer object."""
+    raw = (
+        'Verdict: \n'
+        '{"falsified": false, "confidence": 0.7, "rationale": "ok", '
+        '"meta": {"model": "claude-3", "score": 0.85}}'
+    )
+    obj = _parse_falsifier_output(raw)
+    assert obj is not None and obj["falsified"] is False
+    assert obj["meta"]["model"] == "claude-3"
+
+
+def test_parse_falsifier_output_handles_braces_in_strings():
+    """The regex `\\{[^{}]*\\}` would mis-truncate at `{` in a string. Must not."""
+    raw = '{"falsified": true, "confidence": 0.9, "rationale": "string with { brace"}'
+    obj = _parse_falsifier_output(raw)
+    assert obj is not None and obj["falsified"] is True
+    assert "{ brace" in obj["rationale"]
+
+
 def test_make_subprocess_falsifier_handles_missing_binary():
     cfgs = [ReviewConfig(cli="claude", cmd=["claude-does-not-exist"], timeout_s=5)]
     falsifier = make_subprocess_falsifier(cfgs)
