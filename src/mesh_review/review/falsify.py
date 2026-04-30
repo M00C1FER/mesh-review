@@ -37,11 +37,43 @@ Output ONLY a JSON object (no prose, no fences):
 }}"""
 
 
-_JSON_OBJ_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
+def _balanced_object_substrings(text: str) -> List[str]:
+    """Yield every `{ ... }` substring with balanced braces, longest first.
+
+    Handles nested objects (which the prior `\\{[^{}]*\\}` regex couldn't),
+    and strings containing braces (a `"`-aware parser walks past them).
+    """
+    out: List[str] = []
+    in_str = False
+    escaped = False
+    depth = 0
+    start_idx = -1
+    for i, ch in enumerate(text):
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\" and in_str:
+            escaped = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            if depth == 0:
+                start_idx = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start_idx != -1:
+                out.append(text[start_idx:i + 1])
+                start_idx = -1
+    return sorted(out, key=len, reverse=True)
 
 
 def _parse_falsifier_output(raw: str) -> Optional[Dict]:
-    """Tolerate prose/fences/extra braces. Returns None if no usable JSON."""
+    """Tolerate prose/fences/nested objects. Returns None if no usable JSON."""
     if not raw.strip():
         return None
     # Strip ```json ... ``` fences first
@@ -55,10 +87,11 @@ def _parse_falsifier_output(raw: str) -> Optional[Dict]:
             return obj
     except json.JSONDecodeError:
         pass
-    # Greedy {...} extract — first match wins for falsifier output (single object expected)
-    for m in _JSON_OBJ_RE.finditer(raw):
+    # Balanced-brace scan (handles nested {} and braces inside string values).
+    # Prefer the longest object that contains the "falsified" key.
+    for cand in _balanced_object_substrings(raw):
         try:
-            obj = json.loads(m.group(0))
+            obj = json.loads(cand)
             if isinstance(obj, dict) and "falsified" in obj:
                 return obj
         except json.JSONDecodeError:
