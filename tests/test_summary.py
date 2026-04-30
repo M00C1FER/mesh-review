@@ -43,6 +43,28 @@ def test_parse_partial_output():
     assert not doc.risk
 
 
+def test_parse_markdown_bold_prefixes():
+    """LLMs frequently bold prefixes — `**TLDR:**` must still match."""
+    raw = """**TLDR:** Refactors auth.
+**FILES:**
+- a.py: x
+**RISK:** none
+**TESTS:** pytest"""
+    doc = _parse_summary("claude", raw)
+    assert "Refactors auth" in doc.tldr
+    assert "a.py" in doc.files_changed
+    assert "none" in doc.risk
+    assert "pytest" in doc.test_plan
+
+
+def test_parse_underscore_emphasis_prefixes():
+    """`_TLDR:_` (italic) also valid markdown — should still match."""
+    raw = "_TLDR:_ italic prefix\n_RISK:_ italic risk"
+    doc = _parse_summary("gemini", raw)
+    assert "italic prefix" in doc.tldr
+    assert "italic risk" in doc.risk
+
+
 # ── merge / vote ──────────────────────────────────────────────────────────
 
 
@@ -51,14 +73,32 @@ def _doc(cli, **kw):
 
 
 def test_merge_concatenates_with_attribution():
+    """Distinctly-different per-CLI summaries get separate [cli] attribution."""
     docs = [
-        _doc("claude", tldr="A short A"),
-        _doc("gemini", tldr="A short B", files_changed="- f.py: x"),
+        _doc("claude", tldr="Refactor auth flow to issuer-based JWT tokens"),
+        _doc("gemini", tldr="Drops session cookies; adds CSRF middleware",
+             files_changed="- f.py: x"),
     ]
     merged = merge_structural(docs)
     assert "[claude]" in merged.tldr
     assert "[gemini]" in merged.tldr
     assert "[gemini]" in merged.files_changed
+
+
+def test_merge_dedups_near_duplicate_paragraphs():
+    """When 2+ CLIs say nearly the same thing, the merge collapses to one
+    cluster with combined attribution (`[claude+gemini]`)."""
+    docs = [
+        _doc("claude", tldr="Adds JWT auth to the API"),
+        _doc("gemini", tldr="Adds JWT auth to the API."),  # identical bar a period
+        _doc("copilot", tldr="Refactor pagination to cursor-based"),
+    ]
+    merged = merge_structural(docs)
+    # Claude + Gemini cluster (order-insensitive in attribution)
+    assert "[claude+gemini]" in merged.tldr or "[gemini+claude]" in merged.tldr
+    # Copilot's distinct paragraph is preserved separately
+    assert "[copilot]" in merged.tldr
+    assert "cursor-based" in merged.tldr.lower()
 
 
 def test_merge_handles_all_failed():

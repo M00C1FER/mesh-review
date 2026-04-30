@@ -7,10 +7,14 @@ silencing genuine issues nobody wants to defend.
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import subprocess
 from dataclasses import asdict
 from typing import Callable, Dict, List, Optional
 
 from .consensus import ConsensusFinding
+from .core import ReviewConfig
 
 
 _FALSIFY_PROMPT = """You are running an adversarial code review.
@@ -25,16 +29,91 @@ Finding:
   title:    {title}
   detail:   {body}
 
-Output JSON: {{
+Output ONLY a JSON object (no prose, no fences):
+{{
   "falsified": true|false,
   "confidence": 0.0..1.0,
   "rationale": "<1-2 sentences>"
 }}"""
 
 
+_JSON_OBJ_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
+
+
+def _parse_falsifier_output(raw: str) -> Optional[Dict]:
+    """Tolerate prose/fences/extra braces. Returns None if no usable JSON."""
+    if not raw.strip():
+        return None
+    # Strip ```json ... ``` fences first
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        raw = fence_match.group(1)
+    # Try direct
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            return obj
+    except json.JSONDecodeError:
+        pass
+    # Greedy {...} extract — first match wins for falsifier output (single object expected)
+    for m in _JSON_OBJ_RE.finditer(raw):
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict) and "falsified" in obj:
+                return obj
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def make_subprocess_falsifier(
+    configs: List[ReviewConfig],
+    timeout_s: int = 180,
+) -> Callable[[str, str], Dict]:
+    """Build a real falsifier that dispatches to the named CLIs via subprocess.
+
+    Each `(cli, prompt)` invocation locates the matching `ReviewConfig.cmd`
+    and shells out. If the CLI binary is missing, returns a non-falsifying
+    "binary not on PATH" result so the finding survives by default.
+    """
+    by_name: Dict[str, ReviewConfig] = {c.cli: c for c in configs}
+
+    def falsifier(cli: str, prompt: str) -> Dict:
+        cfg = by_name.get(cli)
+        if cfg is None or not cfg.cmd:
+            return {"falsified": False, "confidence": 0.0,
+                    "rationale": f"{cli}: not registered"}
+        if not shutil.which(cfg.cmd[0]):
+            return {"falsified": False, "confidence": 0.0,
+                    "rationale": f"{cli}: {cfg.cmd[0]} not on PATH"}
+        try:
+            proc = subprocess.run(
+                cfg.cmd + [prompt],
+                capture_output=True, text=True, timeout=timeout_s,
+                input="",
+            )
+        except subprocess.TimeoutExpired:
+            return {"falsified": False, "confidence": 0.0,
+                    "rationale": f"{cli}: timeout after {timeout_s}s"}
+        parsed = _parse_falsifier_output(proc.stdout)
+        if parsed is None:
+            return {"falsified": False, "confidence": 0.0,
+                    "rationale": f"{cli}: unparseable output"}
+        return {
+            "falsified": bool(parsed.get("falsified", False)),
+            "confidence": float(parsed.get("confidence", 0.0)),
+            "rationale": str(parsed.get("rationale", ""))[:500],
+        }
+
+    return falsifier
+
+
 def _default_falsifier(cli: str, prompt: str) -> Dict:
-    """Stand-in: in production wires to subprocess/SDK call. Here we no-op."""
-    return {"falsified": False, "confidence": 0.0, "rationale": f"{cli}: no-op (no SDK wired)"}
+    """No-op fallback used only when callers don't supply one and we can't
+    pick CLI configs. Kept for backwards compatibility / unit tests.
+    Prefer `make_subprocess_falsifier(configs)` in production callers."""
+    return {"falsified": False, "confidence": 0.0,
+            "rationale": f"{cli}: no falsifier supplied (use make_subprocess_falsifier)"}
 
 
 def sigma_gate(consensus: List[ConsensusFinding],
