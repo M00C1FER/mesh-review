@@ -114,6 +114,9 @@ def _shell_runner(cli: str, cmd: List[str], timeout: int):
         except subprocess.TimeoutExpired:
             return ReviewResult(cli=cli, findings=[], raw_output="",
                                 error=f"{cli} timeout after {timeout}s")
+        if proc.returncode != 0:
+            return ReviewResult(cli=cli, findings=[], raw_output=proc.stdout,
+                                error=f"{cli} exited {proc.returncode}: {proc.stderr.strip()[:300]}")
         out = proc.stdout
         findings = _parse_findings(out, default_cli=cli, default_file=path)
         return ReviewResult(cli=cli, findings=findings, raw_output=out)

@@ -66,7 +66,7 @@ def _shell_runner(cli: str, cmd: List[str], timeout: int):
     def run(diff: str, prompt: str) -> SummaryDoc:
         if not shutil.which(cmd[0]):
             return SummaryDoc(cli=cli, error=f"{cmd[0]} not on PATH")
-        full_prompt = prompt.format(diff=diff)
+        full_prompt = prompt.replace("{diff}", diff)
         try:
             proc = subprocess.run(
                 cmd + [full_prompt],
@@ -74,6 +74,8 @@ def _shell_runner(cli: str, cmd: List[str], timeout: int):
             )
         except subprocess.TimeoutExpired:
             return SummaryDoc(cli=cli, error=f"{cli} timeout after {timeout}s")
+        if proc.returncode != 0:
+            return SummaryDoc(cli=cli, error=f"{cli} exited {proc.returncode}: {proc.stderr.strip()[:300]}")
         return _parse_summary(cli, proc.stdout)
     return run
 
