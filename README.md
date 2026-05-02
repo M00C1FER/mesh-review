@@ -110,10 +110,58 @@ merged = merge_structural(docs)
 
 | OS | Status |
 |---|---|
-| Debian 13 / Ubuntu 22.04+ / WSL2 | ✅ tested |
-| Fedora / RHEL / Arch / Alpine / openSUSE | ✅ should work (pure Python) |
-| macOS | ✅ should work |
+| Debian 12/13 / Ubuntu 22.04+ | ✅ CI-tested (matrix job) |
+| Alpine Linux (musl libc) | ✅ CI-tested (container job) |
+| macOS 13+ | ✅ CI-tested (macos-latest runner) |
+| WSL2 (Ubuntu base) | ✅ works; see WSL note below |
+| Fedora / Arch / openSUSE | ✅ pure-Python; expected to work |
 | Windows native | ⚠️ subprocess dispatch needs `*.exe` versions of CLIs on PATH; WSL2 recommended |
+| Termux (Android) | ✅ see [Termux](#termux) section below |
+
+### WSL note
+
+When running `mesh-review` locally inside WSL2 (not from a GitHub Actions runner),
+the CLI emits an advisory warning if it detects a Microsoft kernel
+(`uname -r` contains `microsoft`). This is informational only: everything works,
+but Windows `.exe` wrappers on the WSL PATH may behave differently than native
+Linux binaries. Silence it with:
+
+```bash
+export MESH_REVIEW_NO_WSL_WARN=1
+```
+
+### Termux
+
+Install on Android via [Termux](https://termux.dev/) (F-Droid build recommended):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/M00C1FER/mesh-review/main/scripts/install-termux.sh | bash
+```
+
+Or manually:
+
+```bash
+pkg install python git
+pip install git+https://github.com/M00C1FER/mesh-review.git
+```
+
+**Local falsification via Ollama on the same WiFi network:**
+
+```python
+from mesh_review.review.falsify_sdk import make_openai_falsifier
+from mesh_review import sigma_gate, build_consensus
+
+falsifier = make_openai_falsifier(
+    model="qwen2.5-coder:7b",
+    base_url="http://<ollama-host>:11434/v1",
+    api_key="ollama",   # Ollama ignores the key
+)
+gate = sigma_gate(consensus, falsifier=falsifier)
+```
+
+The OpenAI-compatible adapter (`falsify_sdk`) accepts any `base_url`, so any
+Ollama instance — local or on LAN — works as a cost-free, privacy-preserving
+falsifier on Android.
 
 ## Testing
 
@@ -122,11 +170,13 @@ pip install -e .[dev]
 pytest
 ```
 
-55+ tests across config / consensus / summary / falsification / golden:
+117 tests across config / consensus / summary / falsification / golden / property-based:
 - 13 YAML + inline config parsing tests (review)
-- 22 consensus-building, Sigma-gate, and falsification tests
-- 18 summary-aggregation, diff-provider, and config tests
-- 4+ golden-test assertions on `examples/broken-repo/auth.py`
+- 50 consensus-building, Sigma-gate, and falsification tests
+- 35 summary-aggregation, diff-provider, and config tests
+- 4 golden-test assertions on `examples/broken-repo/auth.py`
+- 9 OpenAI-SDK falsifier adapter tests
+- 6 Hypothesis property tests covering sigma_gate threshold edge cases
 
 ## Roadmap
 
