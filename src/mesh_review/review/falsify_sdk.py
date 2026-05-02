@@ -78,7 +78,7 @@ def make_openai_falsifier(
         ImportError: If the ``openai`` package is not installed.
     """
     try:
-        import openai  # noqa: F401 — checked here, used in inner function
+        import openai  # noqa: F401 - checked here, used in inner function
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "The 'openai' package is required for make_openai_falsifier(). "
