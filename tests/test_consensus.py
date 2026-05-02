@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from mesh_review.review.core import (
     Finding, ReviewResult, ReviewConfig, run_review,
     _parse_findings, _normalize_title,
-    FINDING_SCHEMA, _validate_finding_item,
+    _validate_finding_item,
 )
 from mesh_review.review.consensus import build_consensus
 from mesh_review.review.falsify import (

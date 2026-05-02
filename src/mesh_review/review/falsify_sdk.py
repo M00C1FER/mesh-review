@@ -41,13 +41,11 @@ Any OpenAI-compatible endpoint works via ``base_url`` + ``api_key``::
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from typing import Callable, Dict, Optional
 
-from .falsify import _parse_falsifier_output, _FALSIFY_PROMPT, _esc
-from .consensus import ConsensusFinding
+from .falsify import _parse_falsifier_output
 
 logger = logging.getLogger(__name__)
 
