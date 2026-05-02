@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import List
 
@@ -14,6 +15,46 @@ from .summary.config import load_config_yaml as load_summary_yaml
 from .summary.core import SummaryConfig, default_configs as default_summary, run_summary
 from .summary.diff import GithubDiffProvider
 from .summary.merge import merge_structural, render_pr_body, vote_best
+
+
+# ── WSL detection ───────────────────────────────────────────────────────────
+
+
+def _is_wsl() -> bool:
+    """Return True if running inside Windows Subsystem for Linux (WSL1 or WSL2)."""
+    # /proc/sys/kernel/osrelease contains "microsoft" on WSL kernels
+    try:
+        with open("/proc/sys/kernel/osrelease", encoding="utf-8") as fh:
+            return "microsoft" in fh.read().lower()
+    except OSError:
+        pass
+    # Fallback: uname -r output (works inside Python without subprocess)
+    try:
+        import platform
+        return "microsoft" in platform.uname().release.lower()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _warn_if_wsl() -> None:
+    """Emit a one-time advisory when mesh-review is run directly inside WSL.
+
+    The CI GitHub Action runner is a native Linux VM; WSL users running
+    mesh-review locally sometimes see subtle subprocess behaviour differences
+    (e.g. `uname` vs Windows PATH entries).  This warning surfaces that
+    context without blocking the run.
+    """
+    # Suppress if running inside a GitHub Actions runner
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return
+    if _is_wsl():
+        print(
+            "warning: detected WSL environment (uname -r contains 'microsoft'). "
+            "mesh-review works in WSL but subprocess CLIs must be Linux binaries on "
+            "the WSL PATH — Windows .exe wrappers may behave unexpectedly. "
+            "Set MESH_REVIEW_NO_WSL_WARN=1 to silence this.",
+            file=sys.stderr,
+        )
 
 
 # ── Shared helpers ──────────────────────────────────────────────────────────
@@ -140,6 +181,8 @@ def main() -> int:
     ps.set_defaults(func=cmd_summary)
 
     args = parser.parse_args()
+    if not os.environ.get("MESH_REVIEW_NO_WSL_WARN"):
+        _warn_if_wsl()
     return args.func(args)
 
 
