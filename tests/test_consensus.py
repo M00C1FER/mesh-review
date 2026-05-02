@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from mesh_review.review.core import (
     Finding, ReviewResult, ReviewConfig, run_review,
     _parse_findings, _normalize_title,
+    _validate_finding_item,
 )
 from mesh_review.review.consensus import build_consensus
 from mesh_review.review.falsify import (
@@ -530,3 +531,61 @@ def test_parse_findings_skips_non_dict_items():
     )
     assert len(out) == 1
     assert out[0].title == "t"
+
+
+# ── FINDING_SCHEMA and _validate_finding_item ─────────────────────────────
+
+
+def test_finding_schema_is_exported():
+    """FINDING_SCHEMA is a dict with the expected JSON Schema structure."""
+    from mesh_review import FINDING_SCHEMA as schema
+    assert isinstance(schema, dict)
+    assert schema.get("type") == "object"
+    assert "properties" in schema
+    props = schema["properties"]
+    for field in ("file", "severity", "title", "body"):
+        assert field in props, f"FINDING_SCHEMA missing property '{field}'"
+    assert "enum" in props["severity"]
+
+
+def test_validate_finding_item_valid():
+    """A well-formed finding dict produces no validation errors."""
+    item = {"file": "x.py", "line": 10, "severity": "high", "title": "T", "body": "B"}
+    assert _validate_finding_item(item) == []
+
+
+def test_validate_finding_item_missing_required_field():
+    """Missing a required field produces an error."""
+    item = {"file": "x.py", "severity": "high", "title": "T"}  # missing "body"
+    errors = _validate_finding_item(item)
+    assert any("body" in e for e in errors)
+
+
+def test_validate_finding_item_invalid_severity():
+    """An unknown severity string is reported as an error."""
+    item = {"file": "x.py", "severity": "extreme", "title": "T", "body": "B"}
+    errors = _validate_finding_item(item)
+    assert any("severity" in e for e in errors)
+
+
+def test_validate_finding_item_non_dict():
+    """A non-dict value is reported as an error."""
+    errors = _validate_finding_item("just a string")
+    assert errors != []
+
+
+def test_validate_finding_item_invalid_line_type():
+    """A non-integer, non-null line value is reported as an error."""
+    item = {"file": "x.py", "severity": "high", "title": "T", "body": "B", "line": "10"}
+    errors = _validate_finding_item(item)
+    assert any("line" in e for e in errors)
+
+
+def test_parse_findings_coerces_unknown_severity_to_info():
+    """_parse_findings coerces an unknown severity value to 'info'."""
+    out = _parse_findings(
+        '[{"cli":"a","file":"x.py","line":1,"severity":"EXTREME","title":"t","body":"b"}]',
+        default_cli="a", default_file="x.py",
+    )
+    assert len(out) == 1
+    assert out[0].severity == "info"

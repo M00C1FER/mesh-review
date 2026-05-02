@@ -11,6 +11,64 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 
+# ── JSON Schema ───────────────────────────────────────────────────────────────
+
+#: JSON Schema (Draft-07) for a single finding object returned by an LLM CLI.
+#: Exported so external tools and tests can validate against it directly, e.g.:
+#:
+#:   import jsonschema
+#:   jsonschema.validate(finding_dict, FINDING_SCHEMA)
+FINDING_SCHEMA: Dict = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Finding",
+    "description": "A single code-review finding from one LLM CLI.",
+    "type": "object",
+    "required": ["file", "severity", "title", "body"],
+    "additionalProperties": True,
+    "properties": {
+        "cli":      {"type": "string", "description": "Name of the CLI that produced this finding."},
+        "file":     {"type": "string", "description": "Path to the file under review."},
+        "line":     {"type": ["integer", "null"], "minimum": 1,
+                     "description": "Source line number (1-based), or null when unknown."},
+        "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"],
+            "description": "Severity level.",
+        },
+        "title":    {"type": "string", "minLength": 1,
+                     "description": "Short, human-readable title for the finding."},
+        "body":     {"type": "string",
+                     "description": "1-3 sentence explanation of the issue."},
+    },
+}
+
+_VALID_SEVERITIES = frozenset(FINDING_SCHEMA["properties"]["severity"]["enum"])
+
+
+def _validate_finding_item(item: object) -> List[str]:
+    """Return a list of validation error strings for one raw finding dict.
+
+    Performs a lightweight subset of FINDING_SCHEMA without requiring the
+    `jsonschema` package.  External callers that need full JSON Schema
+    validation should use `jsonschema.validate(item, FINDING_SCHEMA)`.
+    """
+    if not isinstance(item, dict):
+        return ["finding must be a JSON object"]
+    errors: List[str] = []
+    for required in ("file", "severity", "title", "body"):
+        if required not in item:
+            errors.append(f"missing required field '{required}'")
+    sev = item.get("severity", "")
+    if isinstance(sev, str) and sev and sev.lower() not in _VALID_SEVERITIES:
+        errors.append(
+            f"severity {sev!r} not in {sorted(_VALID_SEVERITIES)}"
+        )
+    line = item.get("line")
+    if line is not None and not isinstance(line, int):
+        errors.append(f"line must be an integer or null, got {type(line).__name__}")
+    return errors
+
+
 # ── Data shapes ──────────────────────────────────────────────────────────────
 
 
@@ -141,6 +199,10 @@ def _parse_findings(text: str, default_cli: str, default_file: str) -> List[Find
       2. ```json ... ``` fenced blocks (try each, take first list).
       3. Greedy `[...]` extract: find each candidate `[...]` substring with
          balanced brackets; try each from longest to shortest.
+
+    Each candidate item is validated against FINDING_SCHEMA before being
+    accepted; items that fail validation are skipped (invalid fields are
+    coerced where possible, e.g. unknown severity → "info").
     """
     if not text.strip():
         return []
@@ -179,11 +241,15 @@ def _parse_findings(text: str, default_cli: str, default_file: str) -> List[Find
     for item in data:
         if not isinstance(item, dict):
             continue
+        # Schema validation: coerce severity to "info" when unknown so the
+        # finding is still surfaced rather than silently discarded.
+        raw_sev = str(item.get("severity", "info")).lower()
+        severity = raw_sev if raw_sev in _VALID_SEVERITIES else "info"
         findings.append(Finding(
             cli=str(item.get("cli", default_cli)),
             file=str(item.get("file", default_file)),
             line=item.get("line") if isinstance(item.get("line"), int) else None,
-            severity=str(item.get("severity", "info")).lower(),
+            severity=severity,
             title=str(item.get("title", ""))[:200],
             body=str(item.get("body", ""))[:2000],
         ))

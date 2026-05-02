@@ -1,0 +1,43 @@
+# pre-commit hook definitions for mesh-review
+#
+# Usage: add to .pre-commit-config.yaml in your project:
+#
+#   repos:
+#     - repo: https://github.com/M00C1FER/mesh-review
+#       rev: v0.1.0          # pin to a release tag
+#       hooks:
+#         - id: mesh-review
+#           # Only run on Python files; remove args.files below to review all
+#           args: [--config, mesh-review.yaml, --falsify]
+#
+# Because the review is LLM-driven (subprocess CLIs), this hook is best run
+# in manual or push stages rather than every commit to avoid latency:
+#
+#   - id: mesh-review
+#     stages: [push]         # or [manual]
+#
+# See https://pre-commit.com for more details.
+
+- id: mesh-review
+  name: mesh-review (multi-LLM consensus review)
+  description: >
+    Run a multi-LLM consensus code review with optional Sigma falsification
+    gate. Surfaces only findings that multiple models agree on.
+  entry: mesh-review review
+  language: python
+  types: [python]
+  pass_filenames: true
+  stages: [push, manual]
+  additional_dependencies: []
+
+- id: mesh-review-falsify
+  name: mesh-review (review + Sigma falsification gate)
+  description: >
+    Run a multi-LLM consensus review and filter out false positives using
+    the adversarial Sigma falsification gate before reporting findings.
+  entry: mesh-review review --falsify
+  language: python
+  types: [python]
+  pass_filenames: true
+  stages: [push, manual]
+  additional_dependencies: []
