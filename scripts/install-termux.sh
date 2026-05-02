@@ -80,7 +80,7 @@ ok "Launcher → $BIN_DIR/mesh-review"
 # ── Smoke test ───────────────────────────────────────────────────────────────
 log "Step 4/4: Smoke test"
 mesh-review --help >/dev/null && ok "--help OK"
-mesh-review review --list-clis /dev/null 2>/dev/null | grep -q "claude" && ok "--list-clis OK" || warn "--list-clis: no CLIs registered (normal if no LLM CLIs installed)"
+mesh-review review --list-clis /dev/null 2>/dev/null | grep -q "." && ok "--list-clis OK" || warn "--list-clis returned no output (normal if no YAML config is active)"
 
 python - <<'PYSMOKE'
 from mesh_review import ReviewConfig, run_review, build_consensus, sigma_gate

@@ -170,12 +170,13 @@ pip install -e .[dev]
 pytest
 ```
 
-111+ tests across config / consensus / summary / falsification / golden / property-based:
+117 tests across config / consensus / summary / falsification / golden / property-based:
 - 13 YAML + inline config parsing tests (review)
-- 22 consensus-building, Sigma-gate, and falsification tests
-- 18 summary-aggregation, diff-provider, and config tests
-- 4+ golden-test assertions on `examples/broken-repo/auth.py`
-- 9+ Hypothesis property tests covering sigma_gate threshold edge cases
+- 50 consensus-building, Sigma-gate, and falsification tests
+- 35 summary-aggregation, diff-provider, and config tests
+- 4 golden-test assertions on `examples/broken-repo/auth.py`
+- 9 OpenAI-SDK falsifier adapter tests
+- 6 Hypothesis property tests covering sigma_gate threshold edge cases
 
 ## Roadmap
 
