@@ -137,7 +137,7 @@ def make_subprocess_falsifier(
                     "rationale": f"{cli}: unparseable output"}
         return {
             "falsified": bool(parsed.get("falsified", False)),
-            "confidence": float(parsed.get("confidence", 0.0)),
+            "confidence": min(1.0, max(0.0, float(parsed.get("confidence", 0.0)))),
             "rationale": str(parsed.get("rationale", ""))[:500],
         }
 

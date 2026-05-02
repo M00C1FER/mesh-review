@@ -122,10 +122,11 @@ pip install -e .[dev]
 pytest
 ```
 
-37 tests across config / consensus / summary / falsification:
-- 13 YAML + inline config parsing tests
-- 7 consensus-building + Sigma-gate tests
-- 17 summary-aggregation + diff-provider tests
+55+ tests across config / consensus / summary / falsification / golden:
+- 13 YAML + inline config parsing tests (review)
+- 22 consensus-building, Sigma-gate, and falsification tests
+- 18 summary-aggregation, diff-provider, and config tests
+- 4+ golden-test assertions on `examples/broken-repo/auth.py`
 
 ## Roadmap
 
