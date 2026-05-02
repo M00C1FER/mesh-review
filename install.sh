@@ -25,8 +25,13 @@ build_yaml() {
         local name; name="$(echo "${entry%%|*}" | xargs)"
         local cmd;  cmd="$(echo "${entry##*|}"  | xargs)"
         if prompt_yn "Register $name (command: '$cmd')?" n; then
-            { echo "  - name: $name"; printf "    cmd: ["; local first=1
-              for tok in $cmd; do [ $first -eq 0 ] && printf ", "; printf "\"%s\"" "$tok"; first=0; done
+            { local name_safe; name_safe="$(printf '%s' "$name" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+              echo "  - name: \"$name_safe\""; printf "    cmd: ["; local first=1
+              for tok in $cmd; do
+                [ $first -eq 0 ] && printf ", "
+                local tok_safe; tok_safe="$(printf '%s' "$tok" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+                printf '"%s"' "$tok_safe"; first=0
+              done
               printf "]\n"; echo "    timeout_s: 300"; } >> "$out"
             added=$((added+1))
         fi
@@ -35,8 +40,13 @@ build_yaml() {
         local name cmd
         name="$(prompt_default "Name" "my-llm")"
         cmd="$(prompt_default "Command (space-separated)" "my-llm -p")"
-        { echo "  - name: $name"; printf "    cmd: ["; local first=1
-          for tok in $cmd; do [ $first -eq 0 ] && printf ", "; printf "\"%s\"" "$tok"; first=0; done
+        { local name_safe; name_safe="$(printf '%s' "$name" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+          echo "  - name: \"$name_safe\""; printf "    cmd: ["; local first=1
+          for tok in $cmd; do
+            [ $first -eq 0 ] && printf ", "
+            local tok_safe; tok_safe="$(printf '%s' "$tok" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+            printf '"%s"' "$tok_safe"; first=0
+          done
           printf "]\n"; echo "    timeout_s: 300"; } >> "$out"
         added=$((added+1))
     fi

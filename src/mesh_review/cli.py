@@ -81,8 +81,15 @@ def cmd_summary(args) -> int:
         print("error: provide --pr <repo>#<n> or --diff-file <path>", file=sys.stderr)
         return 2
     if args.diff_file:
-        with open(args.diff_file, encoding="utf-8") as f:
-            diff = f.read()
+        try:
+            with open(args.diff_file, encoding="utf-8") as f:
+                diff = f.read()
+        except FileNotFoundError:
+            print(f"error: diff file not found: {args.diff_file}", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"error: cannot read {args.diff_file}: {exc}", file=sys.stderr)
+            return 1
     else:
         repo, _, pr = args.pr.partition("#")
         if not repo or not pr:

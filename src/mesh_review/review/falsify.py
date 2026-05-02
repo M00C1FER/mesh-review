@@ -128,6 +128,9 @@ def make_subprocess_falsifier(
         except subprocess.TimeoutExpired:
             return {"falsified": False, "confidence": 0.0,
                     "rationale": f"{cli}: timeout after {timeout_s}s"}
+        if proc.returncode != 0:
+            return {"falsified": False, "confidence": 0.0,
+                    "rationale": f"{cli}: exited {proc.returncode}: {proc.stderr.strip()[:200]}"}
         parsed = _parse_falsifier_output(proc.stdout)
         if parsed is None:
             return {"falsified": False, "confidence": 0.0,
@@ -149,6 +152,11 @@ def _default_falsifier(cli: str, prompt: str) -> Dict:
             "rationale": f"{cli}: no falsifier supplied (use make_subprocess_falsifier)"}
 
 
+def _esc(v: object) -> str:
+    """Escape curly braces in LLM-controlled values before str.format() calls."""
+    return str(v).replace("{", "{{").replace("}", "}}")
+
+
 def sigma_gate(consensus: List[ConsensusFinding],
                falsifier: Optional[Callable[[str, str], Dict]] = None,
                clis: Optional[List[str]] = None,
@@ -168,8 +176,9 @@ def sigma_gate(consensus: List[ConsensusFinding],
     out: List[Dict] = []
     for cluster in consensus:
         prompt = _FALSIFY_PROMPT.format(
-            file=cluster.file, line=cluster.line, severity=cluster.severity,
-            title=cluster.title, body=cluster.findings[0].body if cluster.findings else "",
+            file=_esc(cluster.file), line=_esc(cluster.line),
+            severity=_esc(cluster.severity), title=_esc(cluster.title),
+            body=_esc(cluster.findings[0].body if cluster.findings else ""),
         )
         falsifications = []
         target_clis = clis or sorted(set(cluster.clis))
