@@ -56,7 +56,7 @@ After consensus clusters group findings by `(file, severity, line ±2)`, the gat
 
 Why this matters: multi-LLM consensus systems have a quiet failure mode — *shared training-data bias*. If every model's training data says "X is bad," they'll all flag X regardless of context. The falsification round forces each finding to survive an adversarial challenge before it gets a comment. Empirically on the demo (`examples/broken-repo/auth.py`, 5 deliberate issues), the gate eliminates 1–2 false positives per run without dropping any true positives.
 
-**Status of v0.1**: the falsifier-function plumbing is complete, but the default falsifier is a no-op stub. Wire a real LLM SDK call (Anthropic / OpenAI / Ollama) into `sigma_gate(falsifier=...)` for production use. Programmatic API:
+**Status of v0.1**: the falsifier-function plumbing is complete, but the default falsifier is a no-op stub. Wire a real LLM SDK call (any vendor — OpenAI, Ollama, your own) into `sigma_gate(falsifier=...)` for production use. Programmatic API:
 
 ```python
 from mesh_review import sigma_gate, build_consensus
@@ -129,7 +129,7 @@ pytest
 
 ## Roadmap
 
-- v0.2: ship a real Anthropic-SDK-based default falsifier (replaces the no-op stub)
+- v0.2: ship a real LLM-SDK-based default falsifier (vendor TBD; replaces the no-op stub)
 - v0.3: GitHub Action wires `gh pr edit --body-file` for true PR-description updates
 - v0.4: per-file walkthrough comments for files with substantial diffs
 - v0.5: cross-rated `vote` mode (CLIs grade each other's summaries)
