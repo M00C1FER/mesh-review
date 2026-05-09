@@ -1,3 +1,6 @@
+> **⚠ Status: portfolio demonstration**
+>
+> This repo is a learning / demonstration project, not an actively-maintained product. The code works for what it shows — but it isn't intended for production adoption and won't receive ongoing development. The active development focus is [`M00C1FER/mcp-citation-research`](https://github.com/M00C1FER/mcp-citation-research) (MCP research server with a hard confidence-gate refusal contract).
 # mesh-review
 
 > **Modular multi-LLM PR review + summary toolkit.** One CLI, one config, two subcommands: `review` (consensus + adversarial **Sigma falsification gate**) and `summary` (vendor-neutral PR-description summarizer). Register *any* command-line LLM once, get both capabilities. CI-ready GitHub Action.
